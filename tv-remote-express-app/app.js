@@ -1,61 +1,64 @@
+
 const express = require('express');
 const adb = require('adbkit');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-
-
 const app = express();
-const tvIp = '192.168.0.103';
 
 app.use(bodyParser.json());
 app.use(cors());
 
-// Function to establish ADB connection to the TV
-const connectToTV = async (tvIp) => {
-    const client = adb.createClient();
-    const tvDevice = await client.listDevices()
-        .then(devices => devices.find(device => device.id === `${tvIp}:5555`));
+// Initialize ADB client
+const client = adb.createClient();
 
-    if (!tvDevice) {
-        throw new Error('TV device not found.');
-    }
-
-    return client;
+const checkTVConnection = async (tvIp) => {
+  const devices = await client.listDevices();
+  const tvDevice = devices.find((device) => device.id === `${tvIp}:5555`);
+  return !!tvDevice;
 };
 
-// Volume Decrease API
-app.post('/volume/decrease', async (req, res) => {
-    const decreaseVolumeCommand = 'input keyevent KEYCODE_VOLUME_DOWN';
+// Function to connect to the TV
+const connectToTV = async (tvIp) => {
+  const isConnected = await checkTVConnection(tvIp);
+  if (!isConnected) {
     try {
-        const client = await connectToTV(tvIp);
-        await client.shell(tvIp, decreaseVolumeCommand);
-        console.log('Volume decreased successfully');
-        res.json({ message: 'Volume decreased successfully' });
+      await client.connect(tvIp);
+      console.log('Connected to TV successfully');
     } catch (error) {
-        console.error('Error executing ADB command:', error);
-        res.status(500).json({ error: 'Error executing ADB command' });
+      console.error('Error connecting to TV:', error);
+      throw error; // Throw the error so it can be caught in the calling function
     }
+  }
+};
+
+// Connect API
+app.post('/connect', async (req, res) => {
+  const { tvIp } = req.body;
+
+  if (!tvIp) {
+    return res.status(400).json({ error: 'TV IP address is required.' });
+  }
+
+  try {
+    await connectToTV(tvIp);
+    res.json({ message: 'Connected to TV successfully' });
+  } catch (error) {
+    console.error('Error connecting to TV:', error);
+    res.status(500).json({ error: 'Error connecting to TV' });
+  }
 });
 
-// Volume Increase API
-app.post('/volume/increase', async (req, res) => {
-    const increaseVolumeCommand = 'input keyevent KEYCODE_VOLUME_UP';
-    // Replace with the actual IP address of your TV
 
-    try {
-        const client = await connectToTV(tvIp);
-        await client.shell(tvIp, increaseVolumeCommand);
-        console.log('Volume increased successfully');
-        res.json({ message: 'Volume increased successfully' });
-    } catch (error) {
-        console.error('Error executing ADB command:', error);
-        res.status(500).json({ error: 'Error executing ADB command' });
-    }
-});
-
-// Arrow API
+// Buttons API
 app.post('/arrow', async (req, res) => {
-    const { direction } = req.body;
+  const { direction, tvIp } = req.body; // Get the tvIp from the request body
+
+  if (!tvIp) {
+    return res.status(400).json({ error: 'TV IP address is required.' });
+  }
+
+  try {
+    await connectToTV(tvIp);
     const validDirections = ['vup', 'vdown', 'up', 'down', 'left', 'right', 'enter', 'back', 'home', 'menu','backs', 'mute'];
     if (!validDirections.includes(direction)) {
         return res.status(400).json({ error: 'Invalid direction provided.' });
@@ -78,66 +81,80 @@ app.post('/arrow', async (req, res) => {
 
     const command = arrowCommands[direction];
 
-    try {
-        const client = await connectToTV(tvIp);
-        await client.shell(tvIp, command);
-        res.json({ message: `Arrow '${direction}' pressed successfully` });
-    } catch (error) {
-        console.error('Error executing ADB command:', error);
-        res.status(500).json({ error: 'Error executing ADB command' });
+    if (!command) {
+      return res.status(400).json({ error: 'Invalid direction provided.' });
     }
+
+    await client.shell(tvIp, command);
+    res.json({ message: `Arrow '${direction}' pressed successfully` });
+  } catch (error) {
+    console.error('Error executing ADB command:', error);
+    res.status(500).json({ error: 'Error executing ADB command' });
+  }
 });
 
+// Keyboard API
 app.post('/keyboard', async (req, res) => {
-    const { key } = req.body;
+  const { key, tvIp } = req.body; // Get the tvIp from the request body
 
-    // Validate the key input (alphabets A-Z, numbers 0-9, or other necessary keys)
-    // if (!/^([A-Za-z0-9]+)$/.test(key)) {
-    //     return res.status(400).json({ error: 'Invalid key provided.' });
-    // }
+  if (!tvIp) {
+    return res.status(400).json({ error: 'TV IP address is required.' });
+  }
 
+  try {
+    await connectToTV(tvIp);
+    // Rest of the code to execute keyboard command...
     const keyboardCommand = `input text ${key}`;
-
-    try {
-        const client = await connectToTV(tvIp);
-        await client.shell(tvIp, keyboardCommand);
-        console.log(`Key '${key}' pressed successfully`);
-        res.json({ message: `Key '${key}' pressed successfully` });
-    } catch (error) {
-        console.error('Error executing ADB command:', error);
-        res.status(500).json({ error: 'Error executing ADB command' });
-    }
+    await client.shell(tvIp, keyboardCommand);
+    res.json({ message: `Key '${key}' pressed successfully` });
+  } catch (error) {
+    console.error('Error executing ADB command:', error);
+    res.status(500).json({ error: 'Error executing ADB command' });
+  }
 });
+  
+  
+// Open YouTube API
+app.post('/open/youtube', async (req, res) => {
+  const { tvIp } = req.body; // Get the tvIp from the request body
 
+  if (!tvIp) {
+    return res.status(400).json({ error: 'TV IP address is required.' });
+  }
+
+  try {
+    await connectToTV(tvIp);
+    // Rest of the code to open YouTube...
+    const openYouTubeCommand =
+      'am start -n com.google.android.youtube.tv/com.google.android.apps.youtube.tv.activity.ShellActivity';
+    await client.shell(tvIp, openYouTubeCommand);
+    res.json({ message: 'YouTube app opened successfully' });
+  } catch (error) {
+    console.error('Error opening YouTube app:', error);
+    res.status(500).json({ error: 'Error opening YouTube app' });
+  }
+});
+  
+
+// Power Off API
 app.post('/power/off', async (req, res) => {
-    const turnOffCommand = 'input keyevent KEYCODE_POWER';
-  
-    try {
-      const client = await connectToTV(tvIp);
-      await client.shell(tvIp, turnOffCommand);
-      console.log('TV turned off successfully');
-      res.json({ message: 'TV turned off successfully' });
-    } catch (error) {
-      console.error('Error turning off the TV:', error);
-      res.status(500).json({ error: 'Error turning off the TV' });
-    }
-  });
-  
-  
-  app.post('/open/youtube', async (req, res) => {
-    const openYouTubeCommand = 'am start -n com.google.android.youtube.tv/com.google.android.apps.youtube.tv.activity.ShellActivity';
-    
-    try {
-        const client = await connectToTV(tvIp);
-        await client.shell(tvIp, openYouTubeCommand);
-        console.log('Volume increased successfully');
-        res.json({ message: 'YouTube app opened successfully' });
-    } catch (error) {
-        console.error('Error executing ADB command:', error);
-        res.status(500).json({ error: 'Error opening YouTube app' });
-    }
-  });
-  
+  const { tvIp } = req.body; // Get the tvIp from the request body
+
+  if (!tvIp) {
+    return res.status(400).json({ error: 'TV IP address is required.' });
+  }
+
+  try {
+    await connectToTV(tvIp);
+    // Rest of the code to execute power off command...
+    const powerOffCommand = 'input keyevent KEYCODE_POWER';
+    await client.shell(tvIp, powerOffCommand);
+    res.json({ message: 'TV turned off successfully' });
+  } catch (error) {
+    console.error('Error turning off the TV:', error);
+    res.status(500).json({ error: 'Error turning off the TV' });
+  }
+});
   
 
 // Start the server
@@ -145,3 +162,21 @@ const PORT = 5000;
 app.listen(PORT, () => {
     console.log(`Server started on http://localhost:${PORT}`);
 });
+
+
+
+
+
+
+
+
+
+
+
+// // ... (rest of the code)
+
+// // Start the server
+// const PORT = 5000;
+// app.listen(PORT, () => {
+//   console.log(`Server started on http://localhost:${PORT}`);
+// });
